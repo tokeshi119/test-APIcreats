@@ -1,0 +1,379 @@
+openapi: 3.0.0
+info:
+  title: LINEコネクターII 友だち管理API
+  version: 1.0.0
+  description: |
+    LINEコネクターIIの友だち一覧画面で使用するAPI仕様です。
+    
+    ## 認証
+    Bearer Token（OAuth 2.0）を使用します。
+    
+    ## エラーレスポンス
+    RFC 9457準拠の形式でエラーを返します。
+
+servers:
+  - url: https://api.example.com/api/v1
+    description: 本番環境
+  - url: https://api-staging.example.com/api/v1
+    description: ステージング環境
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer Token形式の認証トークン
+
+  schemas:
+    Friend:
+      type: object
+      required:
+        - id
+        - management_code
+        - line_id
+        - registered_at
+        - status
+        - line_connection
+      properties:
+        id:
+          type: string
+          description: 友だちID（管理ID）
+          example: "12345"
+        management_code:
+          type: string
+          description: |
+            管理コード（CMS向けMessaging API ユーザーID）
+            
+            **【要確認】** 画面の「管理コード」列が実際に `messaging_api_user_id_cms` を表示しているか確認が必要
+          example: "U1234567890abcdef"
+        advertisement_code:
+          type: string
+          nullable: true
+          description: 広告コード
+          example: "yokota_x"
+        line_id:
+          type: string
+          description: LINE ID（Messaging API ユーザーID）
+          example: "U1234567890abcdef"
+        registered_at:
+          type: string
+          format: date-time
+          description: 友だち登録日時（ISO 8601形式）
+          example: "2024-01-15T10:30:00+09:00"
+        status:
+          type: string
+          enum:
+            - normal
+            - blocked
+          description: 友だち状態（normal=正常、blocked=ブロック）
+          example: "normal"
+        line_connection:
+          $ref: '#/components/schemas/LineConnection'
+        query_string:
+          type: string
+          nullable: true
+          description: クエリ文字列
+          example: "utm_source=google&utm_medium=cpc"
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新日時（ISO 8601形式）
+          example: "2024-01-20T15:45:00+09:00"
+
+    LineConnection:
+      type: object
+      required:
+        - line_official_account_id
+      properties:
+        line_official_account_id:
+          type: string
+          description: LINE公式アカウントID
+          example: "67890"
+        line_official_account_name:
+          type: string
+          description: LINE公式アカウント名
+          example: "LINE公式アカウント1"
+
+    FriendsListResponse:
+      type: object
+      required:
+        - total_count
+        - page_number
+        - limit
+        - items
+      properties:
+        total_count:
+          type: integer
+          description: 検索条件に該当する総件数
+          example: 150
+        page_number:
+          type: integer
+          description: 現在のページ番号（1始まり）
+          example: 1
+        limit:
+          type: integer
+          description: 1ページあたりの最大取得件数
+          example: 20
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Friend'
+
+    Error:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+      properties:
+        type:
+          type: string
+          description: エラータイプのURI（識別子）
+          example: "/types/400"
+        title:
+          type: string
+          description: エラーのタイトル（人間が読める形式）
+          example: "Bad Request"
+        status:
+          type: integer
+          description: HTTPステータスコード
+          example: 400
+        detail:
+          type: string
+          description: エラーの詳細メッセージ
+          example: "Invalid request parameters"
+        errors:
+          type: array
+          description: フィールド単位のエラー詳細（バリデーションエラーなど）
+          items:
+            type: object
+            required:
+              - detail
+              - pointer
+            properties:
+              detail:
+                type: string
+                description: フィールド固有のエラーメッセージ
+                example: "must be a positive integer"
+              pointer:
+                type: string
+                description: エラーが発生したフィールドへのJSON Pointer
+                example: "#/limit"
+
+security:
+  - bearerAuth: []
+
+paths:
+  /friends:
+    get:
+      summary: 友だち一覧取得
+      description: |
+        友だちの一覧を取得します。検索、フィルタ、ソート、ページネーションに対応しています。
+      operationId: getFriends
+      tags:
+        - Friends
+      parameters:
+        - name: q
+          in: query
+          description: 検索キーワード（管理コード、広告コード、LINE IDで部分一致検索）
+          required: false
+          schema:
+            type: string
+            maxLength: 255
+          example: "test"
+        - name: status
+          in: query
+          description: 友だち状態でフィルタ
+          required: false
+          schema:
+            type: string
+            enum:
+              - normal
+              - blocked
+          example: "normal"
+        - name: advertisement_code
+          in: query
+          description: 広告コードでフィルタ（完全一致）
+          required: false
+          schema:
+            type: string
+          example: "yokota_x"
+        - name: line_official_account_id
+          in: query
+          description: LINE公式アカウントIDでフィルタ
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+          example: 67890
+        - name: sort
+          in: query
+          description: |
+            ソート条件
+            
+            形式: `{field}:{order}`
+            
+            field: `created_at`, `id`, `messaging_api_user_id_cms`
+            
+            order: `asc`, `desc`
+          required: false
+          schema:
+            type: string
+            default: "created_at:desc"
+            pattern: "^(created_at|id|messaging_api_user_id_cms):(asc|desc)$"
+          example: "created_at:desc"
+        - name: limit
+          in: query
+          description: 1ページあたりの最大取得件数
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+          example: 100
+        - name: offset
+          in: query
+          description: 取得開始位置（オフセット）
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          example: 0
+      responses:
+        '200':
+          description: 正常に友だち一覧を取得できた場合
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsListResponse'
+              example:
+                total_count: 150
+                page_number: 1
+                limit: 100
+                items:
+                  - id: "12345"
+                    management_code: "U1234567890abcdef"
+                    advertisement_code: "yokota_x"
+                    line_id: "U1234567890abcdef"
+                    registered_at: "2024-01-15T10:30:00+09:00"
+                    status: "normal"
+                    line_connection:
+                      line_official_account_id: "67890"
+                      line_official_account_name: "LINE公式アカウント1"
+                  - id: "12346"
+                    management_code: "U9876543210fedcba"
+                    advertisement_code: null
+                    line_id: "U9876543210fedcba"
+                    registered_at: "2024-01-18T14:20:00+09:00"
+                    status: "blocked"
+                    line_connection:
+                      line_official_account_id: "67890"
+                      line_official_account_name: "LINE公式アカウント1"
+        '400':
+          description: クエリパラメータの形式が不正な場合
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                type: "/types/400"
+                title: "Bad Request"
+                status: 400
+                detail: "Invalid request parameters"
+                errors:
+                  - detail: "must be a positive integer"
+                    pointer: "#/limit"
+                  - detail: "must be one of: normal, blocked"
+                    pointer: "#/status"
+        '401':
+          description: 認証トークンが無効な場合
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                type: "/types/401"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication required"
+        '403':
+          description: 認証は成功したが、該当サイトへのアクセス権限がない場合
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                type: "/types/403"
+                title: "Forbidden"
+                status: 403
+                detail: "You do not have permission to access this resource"
+        '500':
+          description: サーバー側の予期しないエラー
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                type: "/types/500"
+                title: "Internal Server Error"
+                status: 500
+                detail: "An unexpected error occurred"
+
+  /friends/{friend_id}:
+    delete:
+      summary: 友だち削除
+      description: |
+        特定の友だちを削除します。
+      operationId: deleteFriend
+      tags:
+        - Friends
+      parameters:
+        - name: friend_id
+          in: path
+          required: true
+          description: 友だちID（`line_friends.id` の値）
+          schema:
+            type: string
+            pattern: "^[0-9]+$"
+          example: "12345"
+      responses:
+        '204':
+          description: 正常に削除できた場合（レスポンスボディなし）
+        '401':
+          description: 認証トークンが無効な場合
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: 削除権限がない場合
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                type: "/types/403"
+                title: "Forbidden"
+                status: 403
+                detail: "You do not have permission to delete this friend"
+        '404':
+          description: 指定された友だちが存在しない場合
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                type: "/types/404"
+                title: "Resource not found"
+                status: 404
+                detail: "Friend with id '12345' not found"
+        '500':
+          description: サーバー側の予期しないエラー
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Error'
